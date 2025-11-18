@@ -1,0 +1,95 @@
+[tool.poetry]
+name = "philip-rlf-x"
+version = "0.2.0"
+description = "Advanced Trading Strategy Framework combining technical analysis, machine learning, and reinforcement learning"
+authors = ["Philip <philip@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "quantopians"}, {include = "classifications"}, {include = "transformations"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+numpy = "^1.26.0"
+pandas = "^2.1.0"
+scikit-learn = "^1.3.0"
+tensorflow = "^2.13.0"
+TA-Lib = "^0.4.28"
+scipy = "^1.11.0"
+tqdm = "^4.66.0"
+Pillow = "^10.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+black = "^23.9.0"
+flake8 = "^6.1.0"
+mypy = "^1.5.0"
+ruff = "^0.10.0"
+pre-commit = "^3.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]  # Line too long (handled by black)
+
+[tool.ruff.isort]
+known-first-party = []
+known-third-party = ["numpy", "pandas", "sklearn", "tensorflow", "talib"]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

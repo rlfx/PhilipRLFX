@@ -1,152 +1,199 @@
-#   寫一個函數來得到 MTF 
-#   輸入 : 
-#       - all_ts            < 1 x N double > 時間序列資料
-#       - window_size       < int > 資料窗格大小（類似技術指標的參數）
-#       - rolling_length    < int > 每次滾動移動大小（可以抓 window_size 的 1/8 ~ 1/10 做觀察）
-#       - quantile_size     < int > 分位數，就是可以快速地做 K 分位數（當 quantile_size = 4 就會有四分位數）
-#       - label_size        < int > 看多久之後的趨勢線斜率
-#---------------------------------------------------------------------------------------------------------
+"""Markov Transition Field (MTF) for time series transformation.
 
-import pandas as pd
+This module implements MTF, a technique to convert time series data into
+2D images using Markov transition matrices, suitable for deep learning.
+
+Functions:
+    - MarkovTransitionField: Main transformation function
+    - placeholderMatrix: Initialize placeholder matrices
+    - findTrend: Find trend direction using linear regression
+    - outputMiscellaneous: Save generated MTF images
+"""
+
+import errno
+import os
+import sys
+from typing import List, Tuple
+
 import numpy as np
-import scipy.misc as misc
-import os, errno
-from sys import argv
+import pandas as pd
+from PIL import Image
 from tqdm import trange
 
-# 初始化Placeholder陣列函式
-def placeholderMatrix(n,m,q):
+
+def placeholder_matrix(n: int, m: int, q: int) -> np.ndarray:
+    """Initialize a placeholder matrix array.
+
+    Args:
+        n: Number of first dimension
+        m: Number of second dimension
+        q: Size of zero matrices (q x q)
+
+    Returns:
+        numpy array of shape (n, m) containing q x q zero matrices
+    """
     matrix = []
     for i in range(n):
         tmp = []
         for j in range(m):
-            tmp.append(np.zeros((q,q), float))
+            tmp.append(np.zeros((q, q), dtype=float))
         matrix.append(tmp)
-    return np.array(matrix)
+    return np.array(matrix, dtype=object)
 
-# 用基本線性迴歸找到斜率, 求得趨勢
-def findTrend(src,slope_thresh=None,residual_thresh=None):
-    
-    # 取得 Y 的數量
+def find_trend(
+    src: List[float],
+    slope_thresh: Tuple[float, float] = None,
+    residual_thresh: float = None
+) -> Tuple[float, float]:
+    """Find trend direction using linear regression.
+
+    Args:
+        src: Time series data
+        slope_thresh: Tuple of (up_threshold, down_threshold)
+        residual_thresh: Residual threshold for fit quality
+
+    Returns:
+        Trend direction (-1, 0, 1) or (slope, residual) if thresholds not provided
+    """
     n = len(src)
-    
-    # 令 X 為 0~n 的參數矩陣
-    x , y = np.array([i for i in range(n)]) , np.array(src)
+
+    # Create X as [0, 1, 2, ...] and y as the time series
+    x = np.array([i for i in range(n)])
+    y = np.array(src)
     x = np.vstack([x, np.ones(n)]).T
-    
-    # 執行線性回歸
-    LinReg = np.linalg.lstsq(x, y)
-    
-    # 取得斜率
-    slope = LinReg[0][0]
-    
-    # 取得所有點到回歸線的距離累加
-    residual = 9999
-    try:
-        residual = LinReg[1][0]
-    except:
-        pass
-    
-    # 如果沒有給予「閥值區間」, 則回傳斜率和距離總和
-    if slope_thresh==None or residual_thresh==None:
+
+    # Perform linear regression
+    lin_reg, residuals, _, _ = np.linalg.lstsq(x, y, rcond=None)
+
+    # Get slope from regression
+    slope = lin_reg[0]
+
+    # Get residual sum (distance from regression line)
+    residual = 9999.0
+    if len(residuals) > 0:
+        residual = residuals[0]
+
+    # If no thresholds provided, return slope and residual
+    if slope_thresh is None or residual_thresh is None:
         return slope, residual
-    # 如果距離總和夠小, 代表回歸線的準確度越高（變異數越小）
-    elif residual < residual_thresh:
-        # 若斜率夠大, 代表趨勢向上
+
+    # If residual is small enough (good fit), classify trend
+    if residual < residual_thresh:
         if slope >= slope_thresh[0] and slope > 0.0:
-            return 1
-        # 若斜率夠小, 代表趨勢向下
+            return 1  # Uptrend
         elif slope <= slope_thresh[1] and slope < 0.0:
-            return -1
+            return -1  # Downtrend
         else:
-            return 0
+            return 0  # Neutral
     else:
-        return 0
+        return 0  # Bad fit, no trend
 
-# 繪製並輸出Miscellaneous圖
-def outputMiscellaneous(features):
+def output_miscellaneous(features: np.ndarray) -> None:
+    """Generate and save MTF images.
 
-    # 先整合所有圖片
+    Args:
+        features: Feature array from MarkovTransitionField
+    """
+    # Combine all MTF matrices into images
     N = features.shape[0]
     Q = int(np.sqrt(features.shape[1]))
     W = features.shape[2]
-    new_features = np.zeros( (N, W*Q , W*Q), float )
+    new_features = np.zeros((N, W * Q, W * Q), dtype=float)
+
     for n in trange(N, desc="Combining..."):
         for i in range(Q):
             for j in range(Q):
                 for k in range(W):
                     for l in range(W):
-                        new_features[n, i*W+k, j*W+l] = features[n, i*Q+j, k, l]
-    
-    # 輸出圖片的pickle檔(.pkl)
+                        new_features[n, i * W + k, j * W + l] = features[n, i * Q + j, k, l]
+
+    # Save features as pickle file
     new_features.dump('mtf_Features4plot.pkl')
-    
-    # 確認misc資料夾存在
+
+    # Create output directory
     try:
         os.makedirs("mtf_misc")
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-    
-    # 開始繪製Miscellaneous圖片
-    for index in trange(new_features.shape[0], desc="Drawing..."):
-        img = misc.toimage(new_features[index])
-        img.save('mtf_misc/%04d.png'%(index))                   
-    
-# 主函式
-def MarkovTransitionField(all_ts, window_size, rolling_length, quantile_size, label_size):
 
-    # 取得時間序列長度
-    n = len(all_ts) 
+    # Save images
+    for index in trange(new_features.shape[0], desc="Drawing..."):
+        # Normalize to 0-255 range for image
+        img_array = new_features[index]
+        img_normalized = ((img_array - img_array.min()) / (img_array.max() - img_array.min()) * 255).astype(np.uint8)
+        img = Image.fromarray(img_normalized, mode='L')
+        img.save(f'mtf_misc/{index:04d}.png')                   
     
-    # 由於我們要比較前後來算有沒有狀態轉換, 所以真正的 window_size 會是原本的 +1
-    real_window_size = window_size + 1 
-    
-    # 根據我們的滾動大小，將資料切成一組一組
-    n_rolling_data = int(np.floor((n - real_window_size)/rolling_length)) 
-    
-    # 真正的 feature 會有 Q x Q　個
-    feature_size = quantile_size * quantile_size 
-    
-    # 最終的 MTF
-    markov_field = placeholderMatrix(n_rolling_data, feature_size, window_size) 
-    
-    # 宣告一個紀錄後n天趨勢的陣列（作為Label）
+def markov_transition_field(
+    all_ts: List[float],
+    window_size: int,
+    rolling_length: int,
+    quantile_size: int,
+    label_size: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+    """Convert time series to Markov Transition Field.
+
+    Args:
+        all_ts: Time series data (1D array)
+        window_size: Window size for feature extraction
+        rolling_length: Step size for rolling window
+        quantile_size: Number of quantiles (K for K-quantiles)
+        label_size: Look-ahead period for trend labels
+
+    Returns:
+        Tuple of (markov_field, labels, prices)
+    """
+    # Get time series length
+    n = len(all_ts)
+
+    # Window size needs +1 for state transition detection
+    real_window_size = window_size + 1
+
+    # Calculate number of rolling windows
+    n_rolling_data = int(np.floor((n - real_window_size) / rolling_length))
+
+    # Feature size: quantile_size x quantile_size
+    feature_size = quantile_size * quantile_size
+
+    # Initialize Markov transition field
+    markov_field = placeholder_matrix(n_rolling_data, feature_size, window_size)
+
+    # Initialize arrays for labels and prices
     labels = []
+    prices = []
     
-    # 紀錄價格，用來畫圖
-    Prices = []
-    
-    # 開始從第一筆資料前進
+    # Extract features from rolling windows
     for i_rolling_data in trange(n_rolling_data, desc="Extracting..."):
-    
-        # 先宣告一個「矩陣的矩陣」
-        this_markov_field =  placeholderMatrix(window_size, window_size, quantile_size)
+        # Initialize Markov transition field matrix
+        this_markov_field = placeholder_matrix(window_size, window_size, quantile_size)
         
         # 起始位置
         start_flag = i_rolling_data*rolling_length
         
-        # 整個窗格的資料先從輸入時間序列中取出來
-        full_window_data =  list(all_ts[start_flag : start_flag+real_window_size])
-        
-        # 紀錄窗格的資料，用來畫圖
-        Prices.append(full_window_data)
-        
-        # 從資料斜率的分佈來取得漲跌閥值 (藉由斜率分佈的一個標準差，來確認漲跌)
+        # Get window data from time series
+        full_window_data = list(all_ts[start_flag : start_flag + real_window_size])
+
+        # Store prices for visualization
+        prices.append(full_window_data)
+
+        # Calculate slope thresholds from historical data
         history_slope_data = []
         history_residual_data = []
-        for d in range(real_window_size-label_size):
-            this_slope, this_residual = findTrend(full_window_data[d:d+label_size])
+        for d in range(real_window_size - label_size):
+            this_slope, this_residual = find_trend(full_window_data[d:d + label_size])
             history_slope_data.append(this_slope)
             history_residual_data.append(this_residual)
+
         slope_up_thresh = np.percentile(history_slope_data, 63)
         slope_down_thresh = np.percentile(history_slope_data, 37)
-        Slope_Thresh = [slope_up_thresh, slope_down_thresh]
-        Residual_Thresh = np.percentile(history_residual_data, 50)
-        
-        # 製作Label
-        label_source = list(all_ts[start_flag+real_window_size : start_flag+real_window_size+label_size])
-        new_label = findTrend(label_source, slope_thresh=Slope_Thresh, residual_thresh=Residual_Thresh)
+        slope_thresh = [slope_up_thresh, slope_down_thresh]
+        residual_thresh = np.percentile(history_residual_data, 50)
+
+        # Create label for future trend
+        label_source = list(all_ts[start_flag + real_window_size : start_flag + real_window_size + label_size])
+        new_label = find_trend(label_source, slope_thresh=slope_thresh, residual_thresh=residual_thresh)
         labels.append(new_label)
         
         # 從第 i 筆資料開始
@@ -231,8 +278,8 @@ def MarkovTransitionField(all_ts, window_size, rolling_length, quantile_size, la
                         # 先從矩陣的矩陣取出特定的 W_i,j
                         this_markov_matrix = this_markov_field[i_window_size, j_window_size];
                         
-                        # 由於剛剛有提到，當 i j 太近的時候，資料會不夠沒有 K 分位數，所以矩陣會有空的（等於沒有）
-                        if sum(sum(this_markov_matrix)) is not 0:
+                        # If matrix has values, use it; otherwise use 0
+                        if sum(sum(this_markov_matrix)) != 0:
                             # 如果有矩陣，就把對應的狀態轉換機率放到拆分後的矩陣中
                             seperated_markov_matrix[i_window_size, j_window_size] = this_markov_matrix[i_quantile, j_quantile];
                         else:
@@ -244,43 +291,53 @@ def MarkovTransitionField(all_ts, window_size, rolling_length, quantile_size, la
                 feature_count += 1
             
         
-    return np.array(markov_field), np.array(labels), np.array(Prices)
+    return np.array(markov_field), np.array(labels), np.array(prices)
 
-        
 def main():
-    # 讀取檔案
-    data = pd.read_csv(argv[1])
+    """Main entry point for MTF feature extraction."""
+    # Check command-line arguments
+    if len(sys.argv) < 2:
+        print("Usage: python mtf.py <csv_file>")
+        sys.exit(1)
+
+    # Load data
+    data = pd.read_csv(sys.argv[1])
     data.dropna(inplace=True)
-    
-    # 取得「馬可夫轉移場矩陣（Features）」和「標記資料（Labels）」
-    Window_Size = 20
-    Rolling_Length = 2
-    Quantile_Size = 4
-    Label_Size = 4
-    Features , Labels , Prices = MarkovTransitionField(all_ts=data['CLOSE'], 
-                                                        window_size=Window_Size, 
-                                                        rolling_length=Rolling_Length, 
-                                                        quantile_size=Quantile_Size,
-                                                        label_size=Label_Size)
-    
-    # 輸出numpy矩陣為pickle檔(.pkl)
-    Features.dump('mtf_Features.pkl')
-    Labels.dump('mtf_Labels.pkl')
-    Prices.dump('mtf_Prices.pkl')
-    
-    # 檢查Label分布（balance or imbalance?）
-    unique, counts = np.unique(Labels, return_counts=True)
-    print('Labels distribution:', dict(zip(unique, counts)))
-    
-    # 檢查Feature, Prices, Labels的shape
-    print('Features.shape: {}'.format(np.array(Features).shape))
-    print('Labels.shape: {}'.format(np.array(Labels).shape))
-    print('Prices.shape: {}'.format(np.array(Prices).shape))
-    
-    # 輸出所有Miscellaneous圖片
-    outputMiscellaneous(Features)
-    
-    
+
+    # Configuration for MTF extraction
+    window_size = 20
+    rolling_length = 2
+    quantile_size = 4
+    label_size = 4
+
+    # Extract Markov Transition Field features
+    features, labels, prices = markov_transition_field(
+        all_ts=data['CLOSE'],
+        window_size=window_size,
+        rolling_length=rolling_length,
+        quantile_size=quantile_size,
+        label_size=label_size
+    )
+
+    # Save features to pickle files
+    features.dump('mtf_Features.pkl')
+    labels.dump('mtf_Labels.pkl')
+    prices.dump('mtf_Prices.pkl')
+
+    # Check label distribution
+    unique, counts = np.unique(labels, return_counts=True)
+    label_dist = dict(zip(unique, counts))
+    print(f'Labels distribution: {label_dist}')
+
+    # Print shapes
+    print(f'Features shape: {np.array(features).shape}')
+    print(f'Labels shape: {np.array(labels).shape}')
+    print(f'Prices shape: {np.array(prices).shape}')
+
+    # Generate visualization images
+    output_miscellaneous(features)
+
+
 if __name__ == "__main__":
     main()
 
