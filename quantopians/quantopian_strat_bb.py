@@ -70,8 +70,8 @@ def info_update(context, data):
         if P >= BB2_upper:
             context.SL = 0.5*(BB1_upper+BB2_upper)
             context.TP = 0.9*BB2_upper
-	if context.portfolio.positions[sec].amount and context.SN == 2:
-		context.TP = BB2_upper
+    if context.portfolio.positions[sec].amount and context.SN == 2:
+        context.TP = BB2_upper
         context.SL = 0.95*BB1_upper
         if P >= BB2_upper:
             context.SL = 0.5*(BB1_upper+BB2_upper)
@@ -146,7 +146,7 @@ def BBANDS_signal(context, data):
         context.BBAND_state.append(-1)
     elif C[-1] > BB2_lower:
         context.BBAND_state.append(-2)
-    elif C[-1 ] > BB2_lower:
+    else:
         context.BBAND_state.append(-3)
 
     S = context.BBAND_state[-11:-1]
@@ -182,6 +182,3 @@ def BBANDS_signal(context, data):
            B_MID = BB_middle,
            BB1_LOW = BB1_lower,
            BB2_LOW = BB2_lower)
-	
-	
-	
