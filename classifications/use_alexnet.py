@@ -1,34 +1,63 @@
-from alexnet import AlexNet
-from sklearn.cross_validation import train_test_split
-from keras.utils import np_utils
-from sys import argv
-import numpy as np
+import sys
 
+import numpy as np
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.utils import to_categorical
+
+from alexnet import AlexNet
+
+# Configuration
 LR = 1e-3
 EPOCHS = 5
-MODEL_NAME = 'simple-alexnet-epoch{}.model'.format(EPOCHS)
+MODEL_NAME = f'simple-alexnet-epoch{EPOCHS}.model'
 
-print("[INFO] loading DATA...")
-dataset = np.load(argv[1])
-labelset = np.load(argv[2])
+# Load command-line arguments
+if len(sys.argv) < 3:
+    print("Usage: python use_alexnet.py <dataset_path> <labels_path>")
+    sys.exit(1)
+
+dataset_path = sys.argv[1]
+labels_path = sys.argv[2]
+
+print("[INFO] Loading training data...")
+dataset = np.load(dataset_path)
+labelset = np.load(labels_path)
 WIDTH = dataset.shape[1]
 HEIGHT = dataset.shape[2]
 
+# Reshape data to add channel dimension
 data = dataset[:, :, :, np.newaxis]
+
+# Split into train and test sets
 (trainData, testData, trainLabels, testLabels) = train_test_split(
-	data, labelset, test_size=0.1)
+    data, labelset, test_size=0.1, random_state=42
+)
 
-trainLabels = np_utils.to_categorical(trainLabels)
-testLabels = np_utils.to_categorical(testLabels)
+# Convert labels to one-hot encoding
+trainLabels = to_categorical(trainLabels)
+testLabels = to_categorical(testLabels)
 
-print("[INFO] compiling model...")
-model = AlexNet(width=WIDTH, height=HEIGHT, lr=LR)
+# Determine number of classes from labels
+num_classes = trainLabels.shape[1]
 
-print("[INFO] training...")
-model.fit({'input': trainData}, {'targets': trainLabels},
-            validation_set=0.1, n_epoch=EPOCHS, snapshot_step=500, show_metric=False, run_id=MODEL_NAME)
+print("[INFO] Compiling model...")
+model = AlexNet(width=WIDTH, height=HEIGHT, lr=LR, classes=num_classes)
 
-print("[INFO] evaluating...")
-accuracy = model.evaluate(testData, testLabels)[0]
-print("[INFO] accuracy: {:.2f}%".format(accuracy * 100))
+print("[INFO] Training model...")
+model.fit(
+    trainData,
+    trainLabels,
+    batch_size=32,
+    epochs=EPOCHS,
+    validation_split=0.1,
+    verbose=1
+)
+
+print("[INFO] Evaluating model...")
+loss, accuracy = model.evaluate(testData, testLabels, verbose=1)
+print(f"[INFO] Accuracy: {accuracy * 100:.2f}%")
+
+# Save the model
+print(f"[INFO] Saving model to {MODEL_NAME}...")
+model.save(MODEL_NAME)
 
